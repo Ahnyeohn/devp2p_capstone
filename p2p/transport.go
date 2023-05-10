@@ -60,15 +60,35 @@ func (t *rlpxTransport) ReadMsg() (Msg, error) {
 	defer t.rmu.Unlock()
 
 	var msg Msg
+	buf := make([]byte, 1024)
+	n, err := t.conn.GetConn().Read(buf)
+	if err != nil {
+		fmt.Println("___Read error___")
+	}
+	data := buf[:n]
+
+	str := string(data)
+
+	start, err := time.Parse(time.RFC3339Nano, str)
+	if err != nil {
+	}
+
 	t.conn.SetReadDeadline(time.Now().Add(frameReadTimeout))
 	code, data, wireSize, err := t.conn.Read()
 	if err == nil {
 		// Protocol messages are dispatched to subprotocol handlers asynchronously,
 		// but package rlpx may reuse the returned 'data' buffer on the next call
 		// to Read. Copy the message data to avoid this being an issue.
+		end := time.Now()
 		data = common.CopyBytes(data)
+
+		if code == 7 || code == 23 {
+			delay := (end).Sub(start)
+			fmt.Printf("msg code: %d, block size: %d (compress: %d), block prop delay %v\n", code, len(data), wireSize, delay)
+		}
 		msg = Msg{
-			ReceivedAt: time.Now(),
+			ReceivedAt: end,
+			SendedAt:   start,
 			Code:       code,
 			Size:       uint32(len(data)),
 			meterSize:  uint32(wireSize),
@@ -78,6 +98,7 @@ func (t *rlpxTransport) ReadMsg() (Msg, error) {
 	return msg, err
 }
 
+// geth perf
 func (t *rlpxTransport) WriteMsg(msg Msg) error {
 	t.wmu.Lock()
 	defer t.wmu.Unlock()
@@ -88,12 +109,31 @@ func (t *rlpxTransport) WriteMsg(msg Msg) error {
 		return err
 	}
 
-	// Write the message.
-	t.conn.SetWriteDeadline(time.Now().Add(frameWriteTimeout))
+	ti := time.Now()
+	loc, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		panic(err)
+	}
+	str := ti.In(loc)
+	//str := time.Now().String()
+	if msg.Code == 7 || msg.Code == 23 {
+
+		fmt.Printf("msg code: %d, send time: %s, block size: %d\n", msg.Code, str, msg.Size)
+	}
+	b := []byte(str.Format(time.RFC3339Nano))
+
+	_, err = t.conn.GetConn().Write(b)
+	if err != nil {
+		return err
+	}
+
 	size, err := t.conn.Write(msg.Code, t.wbuf.Bytes())
 	if err != nil {
 		return err
 	}
+
+	// Write the message.
+	t.conn.SetWriteDeadline(time.Now().Add(frameWriteTimeout))
 
 	// Set metrics.
 	msg.meterSize = size

@@ -98,6 +98,10 @@ func NewConn(conn net.Conn, dialDest *ecdsa.PublicKey) *Conn {
 	}
 }
 
+func (c *Conn) GetConn() net.Conn {
+	return c.conn
+}
+
 // SetSnappy enables or disables snappy compression of messages. This is usually called
 // after the devp2p Hello message exchange when the negotiated version indicates that
 // compression is available on both ends of the connection.
